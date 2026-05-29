@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+    font-family: Arial;
+    background: #111;
+    color: white;
+    margin: 0;
+    padding: 10px;
+}
+
+#chat {
+    height: 70vh;
+    overflow-y: auto;
+    border: 1px solid #333;
+    padding: 10px;
+}
+
+input {
+    width: 70%;
+    padding: 10px;
+}
+
+button {
+    padding: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<h3>Multiplayer Chat</h3>
+
+<div id="chat"></div>
+
+<input id="msg" placeholder="napisz..." />
+<button onclick="send()">Wyślij</button>
+
+<script>
+const ws = new WebSocket(
+  (location.protocol === "https:" ? "wss://" : "ws://") + location.host
+);
+
+let myId = null;
+
+ws.onmessage = (msg) => {
+    const data = JSON.parse(msg.data);
+
+    if (data.type === "id") {
+        myId = data.id;
+    }
+
+    if (data.type === "chat") {
+        render(data.messages);
+    }
+};
+
+function send() {
+    const input = document.getElementById("msg");
+
+    if (input.value.trim() === "") return;
+
+    ws.send(JSON.stringify({
+        type: "chat",
+        text: input.value
+    }));
+
+    input.value = "";
+}
+
+function render(messages) {
+    const chat = document.getElementById("chat");
+    chat.innerHTML = "";
+
+    messages.forEach(m => {
+        const div = document.createElement("div");
+
+        if (m.id === myId) {
+            div.style.color = "lime";
+        }
+
+        div.innerText = m.id + ": " + m.text;
+
+        chat.appendChild(div);
+    });
+
+    chat.scrollTop = chat.scrollHeight;
+}
+</script>
+
+</body>
+</html>
