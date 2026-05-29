@@ -5,43 +5,57 @@
 
 <style>
 body {
-    margin: 0;
-    background: #111;
-    color: white;
-    font-family: Arial;
-    overflow: hidden;
+    margin:0;
+    background:#111;
+    color:white;
+    font-family:Arial;
+    overflow:hidden;
 }
 
 #game {
-    width: 100vw;
-    height: 70vh;
-    position: relative;
-    background: #222;
+    width:100vw;
+    height:60vh;
+    position:relative;
+    background:#222;
 }
 
 .player {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
+    position:absolute;
+    width:18px;
+    height:18px;
+    border-radius:50%;
 }
 
 .name {
-    position: absolute;
-    font-size: 12px;
-    transform: translate(-50%, -20px);
-    white-space: nowrap;
+    position:absolute;
+    font-size:11px;
+    transform:translate(-50%,-18px);
 }
 
 #chat {
-    height: 25vh;
-    overflow-y: auto;
-    border-top: 1px solid #333;
-    padding: 5px;
+    height:25vh;
+    overflow-y:auto;
+    border-top:1px solid #333;
+    padding:5px;
 }
 
 input {
-    width: 70%;
+    width:70%;
+}
+
+#ttt {
+    position:absolute;
+    right:10px;
+    top:10px;
+    display:grid;
+    grid-template-columns:repeat(3,40px);
+    gap:5px;
+}
+
+#ttt button {
+    width:40px;
+    height:40px;
+    font-size:18px;
 }
 </style>
 </head>
@@ -50,103 +64,121 @@ input {
 
 <div id="game"></div>
 
+<div id="ttt"></div>
+
 <div id="chat"></div>
 <input id="msg" placeholder="chat..." />
 <button onclick="send()">Send</button>
 
 <script>
-const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
+const ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host);
 
-let id = null;
+let id;
 let players = {};
+let chat = [];
+let ttt = {board:[]};
 
 let x = 100;
 let y = 100;
 
 let name = prompt("Nick:");
+let symbol = Math.random()>0.5?"X":"O";
 
 ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "join", name }));
+    ws.send(JSON.stringify({type:"join", name}));
 };
 
 ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
 
-    if (data.type === "id") {
-        id = data.id;
-    }
+    if (data.type === "id") id = data.id;
 
     if (data.type === "state") {
         players = data.players;
+        chat = data.chat;
+        ttt = data.ttt;
+
         render();
-        renderChat(data.messages);
+        renderChat();
+        renderTTT();
     }
 };
 
-function send() {
-    const input = document.getElementById("msg");
-    if (!input.value) return;
+// movement (lokal + sync co 200ms)
+document.addEventListener("keydown",(e)=>{
+    let s=3;
+    if(e.key==="w") y-=s;
+    if(e.key==="s") y+=s;
+    if(e.key==="a") x-=s;
+    if(e.key==="d") x+=s;
 
-    ws.send(JSON.stringify({
-        type: "chat",
-        text: input.value
-    }));
-
-    input.value = "";
-}
-
-document.addEventListener("keydown", (e) => {
-    let speed = 5;
-
-    if (e.key === "w" || e.key === "ArrowUp") y -= speed;
-    if (e.key === "s" || e.key === "ArrowDown") y += speed;
-    if (e.key === "a" || e.key === "ArrowLeft") x -= speed;
-    if (e.key === "d" || e.key === "ArrowRight") x += speed;
-
-    ws.send(JSON.stringify({
-        type: "move",
-        x,
-        y
-    }));
-
-    render();
+    draw();
 });
 
-function render() {
-    const game = document.getElementById("game");
-    game.innerHTML = "";
+setInterval(()=>{
+    ws.send(JSON.stringify({type:"move",x,y}));
+},200);
 
-    for (let p in players) {
-        let pl = players[p];
+function send(){
+    let i=document.getElementById("msg");
+    if(!i.value) return;
 
-        let div = document.createElement("div");
-        div.className = "player";
-        div.style.left = pl.x + "px";
-        div.style.top = pl.y + "px";
-        div.style.background = pl.color;
+    ws.send(JSON.stringify({type:"chat",text:i.value}));
+    i.value="";
+}
 
-        let name = document.createElement("div");
-        name.className = "name";
-        name.style.left = pl.x + 10 + "px";
-        name.style.top = pl.y + "px";
-        name.innerText = pl.name;
+function render(){
+    let g=document.getElementById("game");
+    g.innerHTML="";
 
-        game.appendChild(div);
-        game.appendChild(name);
+    for(let p in players){
+        let pl=players[p];
+
+        let d=document.createElement("div");
+        d.className="player";
+        d.style.left=pl.x+"px";
+        d.style.top=pl.y+"px";
+        d.style.background=pl.color;
+
+        let n=document.createElement("div");
+        n.className="name";
+        n.style.left=pl.x+"px";
+        n.style.top=pl.y+"px";
+        n.innerText=pl.name;
+
+        g.appendChild(d);
+        g.appendChild(n);
     }
 }
 
-function renderChat(msgs) {
-    const chat = document.getElementById("chat");
-    chat.innerHTML = "";
-
-    msgs.forEach(m => {
-        let div = document.createElement("div");
-        div.innerText = m.name + ": " + m.text;
-        chat.appendChild(div);
+function renderChat(){
+    let c=document.getElementById("chat");
+    c.innerHTML="";
+    chat.forEach(m=>{
+        let d=document.createElement("div");
+        d.innerText=m.name+": "+m.text;
+        c.appendChild(d);
     });
+}
 
-    chat.scrollTop = chat.scrollHeight;
+function renderTTT(){
+    let t=document.getElementById("ttt");
+    t.innerHTML="";
+
+    for(let i=0;i<9;i++){
+        let b=document.createElement("button");
+        b.innerText=ttt.board[i]||"";
+
+        b.onclick=()=>{
+            ws.send(JSON.stringify({
+                type:"ttt",
+                index:i,
+                symbol:symbol
+            }));
+        };
+
+        t.appendChild(b);
+    }
 }
 </script>
 
