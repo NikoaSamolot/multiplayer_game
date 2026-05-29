@@ -1,10 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
+
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body {
+
+body{
     margin:0;
     background:#111;
     color:white;
@@ -12,174 +15,281 @@ body {
     overflow:hidden;
 }
 
-#game {
+#game{
     width:100vw;
-    height:60vh;
+    height:70vh;
     position:relative;
     background:#222;
 }
 
-.player {
+.player{
     position:absolute;
     width:18px;
     height:18px;
     border-radius:50%;
 }
 
-.name {
+.name{
     position:absolute;
     font-size:11px;
     transform:translate(-50%,-18px);
 }
 
-#chat {
-    height:25vh;
+#chat{
+    height:20vh;
     overflow-y:auto;
     border-top:1px solid #333;
     padding:5px;
 }
 
-input {
+input{
     width:70%;
 }
 
-#ttt {
-    position:absolute;
-    right:10px;
-    top:10px;
-    display:grid;
-    grid-template-columns:repeat(3,40px);
-    gap:5px;
-}
-
-#ttt button {
-    width:40px;
-    height:40px;
-    font-size:18px;
-}
 </style>
+
 </head>
 
 <body>
 
 <div id="game"></div>
-
-<div id="ttt"></div>
-
 <div id="chat"></div>
-<input id="msg" placeholder="chat..." />
+
+<input id="msg" placeholder="chat...">
 <button onclick="send()">Send</button>
 
 <script>
-const ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host);
+
+const ws = new WebSocket(
+    (location.protocol === "https:" ? "wss://" : "ws://") + location.host
+);
 
 let id;
+
+// server state
 let players = {};
 let chat = [];
-let ttt = {board:[]};
 
+// render state (smooth)
+let renderPlayers = {};
+
+// local player
 let x = 100;
 let y = 100;
 
-let name = prompt("Nick:");
-let symbol = Math.random()>0.5?"X":"O";
+let targetX = x;
+let targetY = y;
+let movingToClick = false;
 
-ws.onopen = () => {
-    ws.send(JSON.stringify({type:"join", name}));
-};
+// throttle send
+let lastSend = 0;
 
+// ---------- MOVE SEND ----------
+function sendMove(){
+    const now = Date.now();
+    if(now - lastSend < 40) return;
+
+    ws.send(JSON.stringify({
+        type:"move",
+        x,
+        y
+    }));
+
+    lastSend = now;
+}
+
+// ---------- NICK ----------
+function chooseNick(){
+
+    let name = prompt("Nick:");
+
+    if(!name || !name.trim()){
+        return chooseNick();
+    }
+
+    ws.send(JSON.stringify({
+        type:"join",
+        name
+    }));
+}
+
+ws.onopen = () => chooseNick();
+
+// ---------- WS ----------
 ws.onmessage = (e) => {
+
     const data = JSON.parse(e.data);
 
-    if (data.type === "id") id = data.id;
+    if(data.type === "id"){
+        id = data.id;
+    }
 
-    if (data.type === "state") {
+    if(data.type === "nick_taken"){
+        alert("Nick zajęty");
+        chooseNick();
+    }
+
+    if(data.type === "kick"){
+        alert("AFK kick");
+        location.reload();
+    }
+
+    if(data.type === "state"){
         players = data.players;
         chat = data.chat;
-        ttt = data.ttt;
 
-        render();
+        // init render objects
+        for(let p in players){
+            if(!renderPlayers[p]){
+                renderPlayers[p] = {
+                    x: players[p].x,
+                    y: players[p].y
+                };
+            }
+        }
+
         renderChat();
-        renderTTT();
     }
 };
 
-// movement (lokal + sync co 200ms)
+// ---------- INPUT ----------
 document.addEventListener("keydown",(e)=>{
-    let s=3;
-    if(e.key==="w") y-=s;
-    if(e.key==="s") y+=s;
-    if(e.key==="a") x-=s;
-    if(e.key==="d") x+=s;
 
-    draw();
+    let s = 6;
+    let moved = false;
+
+    movingToClick = false;
+
+    if(e.key==="w"){ y-=s; moved=true; }
+    if(e.key==="s"){ y+=s; moved=true; }
+    if(e.key==="a"){ x-=s; moved=true; }
+    if(e.key==="d"){ x+=s; moved=true; }
+
+    if(moved) sendMove();
 });
 
+// ---------- CLICK MOVE ----------
+const game = document.getElementById("game");
+
+game.addEventListener("click",(e)=>{
+
+    const rect = game.getBoundingClientRect();
+
+    targetX = e.clientX - rect.left;
+    targetY = e.clientY - rect.top;
+
+    movingToClick = true;
+});
+
+// ---------- SMOOTH LOCAL MOVE ----------
 setInterval(()=>{
-    ws.send(JSON.stringify({type:"move",x,y}));
-},200);
 
-function send(){
-    let i=document.getElementById("msg");
-    if(!i.value) return;
+    if(!movingToClick) return;
 
-    ws.send(JSON.stringify({type:"chat",text:i.value}));
-    i.value="";
-}
+    let dx = targetX - x;
+    let dy = targetY - y;
 
-function render(){
-    let g=document.getElementById("game");
-    g.innerHTML="";
+    let dist = Math.sqrt(dx*dx + dy*dy);
+
+    if(dist < 5){
+        movingToClick = false;
+        return;
+    }
+
+    let speed = 4;
+
+    x += dx / dist * speed;
+    y += dy / dist * speed;
+
+    sendMove();
+
+},16);
+
+// ---------- INTERPOLATION LOOP ----------
+function updateInterpolation(){
 
     for(let p in players){
-        let pl=players[p];
 
-        let d=document.createElement("div");
-        d.className="player";
-        d.style.left=pl.x+"px";
-        d.style.top=pl.y+"px";
-        d.style.background=pl.color;
+        if(!renderPlayers[p]) continue;
 
-        let n=document.createElement("div");
-        n.className="name";
-        n.style.left=pl.x+"px";
-        n.style.top=pl.y+"px";
-        n.innerText=pl.name;
+        renderPlayers[p].x += (players[p].x - renderPlayers[p].x) * 0.2;
+        renderPlayers[p].y += (players[p].y - renderPlayers[p].y) * 0.2;
+    }
+
+    requestAnimationFrame(updateInterpolation);
+}
+
+updateInterpolation();
+
+// ---------- RENDER LOOP ----------
+function render(){
+
+    const g = document.getElementById("game");
+
+    // NIE resetujemy DOM co klatkę
+    g.innerHTML = "";
+
+    for(let p in players){
+
+        if(!players[p].name) continue;
+        if(!renderPlayers[p]) continue;
+
+        let pl = renderPlayers[p];
+
+        let d = document.createElement("div");
+        d.className = "player";
+        d.style.left = pl.x + "px";
+        d.style.top = pl.y + "px";
+        d.style.background = players[p].color;
+
+        let n = document.createElement("div");
+        n.className = "name";
+        n.style.left = pl.x + "px";
+        n.style.top = pl.y + "px";
+        n.innerText = players[p].name;
 
         g.appendChild(d);
         g.appendChild(n);
     }
+
+    requestAnimationFrame(render);
+}
+
+render();
+
+// ---------- CHAT ----------
+function send(){
+
+    let i = document.getElementById("msg");
+
+    if(!i.value) return;
+
+    ws.send(JSON.stringify({
+        type:"chat",
+        text:i.value
+    }));
+
+    i.value="";
 }
 
 function renderChat(){
-    let c=document.getElementById("chat");
-    c.innerHTML="";
-    chat.forEach(m=>{
-        let d=document.createElement("div");
-        d.innerText=m.name+": "+m.text;
+
+    let c = document.getElementById("chat");
+
+    c.innerHTML = "";
+
+    chat.forEach(m => {
+        let d = document.createElement("div");
+        d.innerText = m.name + ": " + m.text;
         c.appendChild(d);
     });
 }
 
-function renderTTT(){
-    let t=document.getElementById("ttt");
-    t.innerHTML="";
+document.getElementById("msg")
+.addEventListener("keydown",(e)=>{
+    if(e.key==="Enter") send();
+});
 
-    for(let i=0;i<9;i++){
-        let b=document.createElement("button");
-        b.innerText=ttt.board[i]||"";
-
-        b.onclick=()=>{
-            ws.send(JSON.stringify({
-                type:"ttt",
-                index:i,
-                symbol:symbol
-            }));
-        };
-
-        t.appendChild(b);
-    }
-}
 </script>
 
 </body>
