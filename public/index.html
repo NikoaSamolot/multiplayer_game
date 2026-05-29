@@ -5,63 +5,87 @@
 
 <style>
 body {
-    font-family: Arial;
+    margin: 0;
     background: #111;
     color: white;
-    margin: 0;
-    padding: 10px;
+    font-family: Arial;
+    overflow: hidden;
+}
+
+#game {
+    width: 100vw;
+    height: 70vh;
+    position: relative;
+    background: #222;
+}
+
+.player {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+}
+
+.name {
+    position: absolute;
+    font-size: 12px;
+    transform: translate(-50%, -20px);
+    white-space: nowrap;
 }
 
 #chat {
-    height: 70vh;
+    height: 25vh;
     overflow-y: auto;
-    border: 1px solid #333;
-    padding: 10px;
+    border-top: 1px solid #333;
+    padding: 5px;
 }
 
 input {
     width: 70%;
-    padding: 10px;
-}
-
-button {
-    padding: 10px;
 }
 </style>
 </head>
 
 <body>
 
-<h3>Multiplayer Chat</h3>
+<div id="game"></div>
 
 <div id="chat"></div>
-
-<input id="msg" placeholder="napisz..." />
-<button onclick="send()">Wyślij</button>
+<input id="msg" placeholder="chat..." />
+<button onclick="send()">Send</button>
 
 <script>
-const ws = new WebSocket(
-  (location.protocol === "https:" ? "wss://" : "ws://") + location.host
-);
+const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
 
-let myId = null;
+let id = null;
+let players = {};
 
-ws.onmessage = (msg) => {
-    const data = JSON.parse(msg.data);
+let x = 100;
+let y = 100;
+
+let name = prompt("Nick:");
+
+ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "join", name }));
+};
+
+ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
 
     if (data.type === "id") {
-        myId = data.id;
+        id = data.id;
     }
 
-    if (data.type === "chat") {
-        render(data.messages);
+    if (data.type === "state") {
+        players = data.players;
+        render();
+        renderChat(data.messages);
     }
 };
 
 function send() {
     const input = document.getElementById("msg");
-
-    if (input.value.trim() === "") return;
+    if (!input.value) return;
 
     ws.send(JSON.stringify({
         type: "chat",
@@ -71,19 +95,54 @@ function send() {
     input.value = "";
 }
 
-function render(messages) {
+document.addEventListener("keydown", (e) => {
+    let speed = 5;
+
+    if (e.key === "w" || e.key === "ArrowUp") y -= speed;
+    if (e.key === "s" || e.key === "ArrowDown") y += speed;
+    if (e.key === "a" || e.key === "ArrowLeft") x -= speed;
+    if (e.key === "d" || e.key === "ArrowRight") x += speed;
+
+    ws.send(JSON.stringify({
+        type: "move",
+        x,
+        y
+    }));
+
+    render();
+});
+
+function render() {
+    const game = document.getElementById("game");
+    game.innerHTML = "";
+
+    for (let p in players) {
+        let pl = players[p];
+
+        let div = document.createElement("div");
+        div.className = "player";
+        div.style.left = pl.x + "px";
+        div.style.top = pl.y + "px";
+        div.style.background = pl.color;
+
+        let name = document.createElement("div");
+        name.className = "name";
+        name.style.left = pl.x + 10 + "px";
+        name.style.top = pl.y + "px";
+        name.innerText = pl.name;
+
+        game.appendChild(div);
+        game.appendChild(name);
+    }
+}
+
+function renderChat(msgs) {
     const chat = document.getElementById("chat");
     chat.innerHTML = "";
 
-    messages.forEach(m => {
-        const div = document.createElement("div");
-
-        if (m.id === myId) {
-            div.style.color = "lime";
-        }
-
-        div.innerText = m.id + ": " + m.text;
-
+    msgs.forEach(m => {
+        let div = document.createElement("div");
+        div.innerText = m.name + ": " + m.text;
         chat.appendChild(div);
     });
 
